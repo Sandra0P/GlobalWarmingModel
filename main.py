@@ -1,39 +1,37 @@
 import random
-import time
+import numpy as np
 
 from PIL import Image, ImageTk
 import PIL
-import os
 import tkinter as tk
+import csv
+import os
 
-UPDATE_TIME =  2000 #1 second
-INITIAL_POLLUTION_RANGE = list(range(40,60))
-kjhk
+UPDATE_TIME = 2000 #2 seconds
+AIR_POLLUTION_AVERAGE = 0
+GLOBAL_WARMING_STATE_A = 0
+GLOBAL_WARMING_STATE_B =0
 
-#TODO check why temperature isn't changing in non-ice elements
-#TODO change clouds and rain handling - rain is formed only from cloud cells, and will come from cloud cells
 
 class Cell:
-    def __init__(self, x, y ):
+    def __init__(self, x, y):
         self.x = x
         self.y = y
+
         self.element = random.choice(["earth", "water", "forest", "city"]) #ice element also exists, but cannot be randomly chosen
         if self.element == "city":
-            self.air_pollution = random.choice(INITIAL_POLLUTION_RANGE)
+            self.air_pollution = int(self.get_air_pollution())
         else:
-            self.air_pollution = 10 #very little air pollution to start with if its not a city
+            self.air_pollution = self.decrease_by_percentage(self.get_air_pollution(), 50) #very little air pollution to start with if its not a city
         self.cloud = random.choice(["cloud", "rain cloud", "cloudless"]) #either 'cloud', 'rain cloud' or None
-        self.wind_force = random.randint(1,100)
+        self.wind_force = random.randint(1,50)
         self.wind_direction = random.choice(["N", "E", "W", "S"]) #from N, E, W, S
         self.temperature = self.define_temp()
         self.raining = False
 
-        self.air_pollution_range = list(range(-5, 16)) #air pollution in cities can increase on a daily basis with percentages in this range
 
-    def update_element(self, new_element):
-        self.element = new_element
-        self.temperature = self.define_temp()
     def define_temp(self):
+        #used for initial temperature declaration
         if self.element == "earth":
             return 25
         if self.element == "water":
@@ -44,6 +42,12 @@ class Cell:
             return 20
         if self.element == "city":
             return 27
+
+    def update_element(self, new_element):
+        #used to change the element of the cell
+        self.element = new_element
+        self.temperature = self.define_temp()
+
 
     def apply_rules(self, map_matrix):
         """rules:
@@ -63,14 +67,18 @@ class Cell:
 
         #calculate my air pollution
         if self.element == "forest": #decreae air pollution in forests
-            self.air_pollution = self.decrease_by_percentage(self.air_pollution, 5/100)
+            # self.air_pollution = self.decrease_by_percentage(self.air_pollution, 50/100) #default
+            self.air_pollution = self.decrease_by_percentage(self.air_pollution, 10)
         elif self.element == "city": #increase air pollution in cities
-            self.air_pollution = self.increase_by_percentage(self.air_pollution, random.choice(self.air_pollution_range)/100)
+            self.air_pollution += 0.01*random.uniform(AIR_POLLUTION_AVERAGE-0.05, AIR_POLLUTION_AVERAGE+0.05)
         if self.wind_force > 70: #if wind is very strong - decrease air pollution here
-            self.air_pollution = self.decrease_by_percentage(self.air_pollution, 15/100)
+            self.air_pollution = self.decrease_by_percentage(self.air_pollution, 30/100)
 
         #change my temperature according to air pollution
-        self.temperature = self.increase_by_percentage(self.temperature, self.air_pollution/100)
+        if random.choice([0,1]) == 1:
+            self.temperature += 0.01*self.daily_temperature_increase()
+        else:
+            self.temperature -= 0.01*self.daily_temperature_increase()
 
         #calculate affect of wind on air pollution of neighbors
         affected_neighbor = self.get_neighbor(self.wind_direction, self.x, self.y, map_matrix)
@@ -78,8 +86,8 @@ class Cell:
 
         #if I am sea - generate rain
         if self.element == "water" and self.cloud != "rain cloud":
-            chance = random.choice([0,1])
-            if chance == 1:
+            chance = random.uniform(0,1)
+            if chance <= 0.7:
                 self.cloud = "rain cloud"
 
         #calculate if it will rain
@@ -116,8 +124,6 @@ class Cell:
             elif self.wind_direction == "W":
                 self.wind_direction = "N"
 
-
-
         #increase my neighbors wind force
         affected_neighbor.wind_force = self.increase_by_percentage(affected_neighbor.wind_force, 20/100)
 
@@ -125,12 +131,35 @@ class Cell:
         if self.temperature >= 40 and self.element == "ice":
             self.element = "water"
 
+        if self.air_pollution < 0:
+            self.air_pollution = 0
 
+    def daily_temperature_increase(self):
+        #used to calculate the value of the temperature increase
+        #formula: temperature increase = a * air pollution + b* global warming state
+        a = 0.1
+        b = 0.2
+        global_warming_state = random.uniform(GLOBAL_WARMING_STATE_A,GLOBAL_WARMING_STATE_B)
+        return a*self.air_pollution + b*global_warming_state
+
+    def get_air_pollution(self):
+        # Assume current pollution levels
+        # current_no2_level = 2
+        # current_so2_level = 1
+        # current_o3_level = 3
+
+        #good simulation:
+        current_no2_level = 0.01
+        current_so2_level = 0.01
+        current_o3_level = 0.01
+
+        return (current_no2_level+ current_so2_level+ current_o3_level)//3
     def calculate_rain_chance(self, x, y, map_matrix, temperature, wind_force):
-        chance_of_rain = 0
 
         dim = len(map_matrix)
+
         #higher chances of rain in norther and souther regions
+
         if y >= dim//2 and y <= dim//2 + 1:
             chance_of_rain = 10
         else:
@@ -139,8 +168,15 @@ class Cell:
         if temperature >= 10 and self.temperature <= 20:
             chance_of_rain += 20
 
+        if temperature >=40 :
+            chance_of_rain -=20 #too hot
+
         if wind_force >= 70:
             chance_of_rain += 20
+
+        if self.element == "forest":
+            if random.randint(0,1) == 1: #forest is rainforest - higher chance of rain
+                chance_of_rain += 70
 
         return chance_of_rain
 
@@ -151,7 +187,7 @@ class Cell:
 
         if wind_direction == "N":
             neighbor_y -= 1
-        elif wind_direction== "S":
+        elif wind_direction == "S":
             neighbor_y += 1
         elif wind_direction == "E":
             neighbor_x += 1
@@ -190,7 +226,7 @@ class Cell:
         # Restore the original sign
         new_value *= -1 if is_negative else 1
 
-        return int(new_value)
+        return new_value
     def decrease_by_percentage(self, original_value, percentage_decrease):
         is_negative = original_value < 0
         decrease_amount = (abs(original_value) * percentage_decrease) / 100
@@ -201,16 +237,16 @@ class Cell:
 
         # if new_value < 0:
         #     new_value = 0
-        return int(new_value)
+        return new_value
 
 class World:
     def __init__(self):
         self.root = None
         self.matrix_size = 5
-        # self.landscape_matrix = self.create_landscape_matrix(image_size=(self.matrix_size, self.matrix_size))
-        # self.temperature_matrix = self.create_temperature_matrix(dim = self.matrix_size)
         self.create_World()
         self.update_paused = False
+        self.day = 1
+
 
 
     def create_World(self):
@@ -231,12 +267,99 @@ class World:
 
 
     def apply_rules(self):
-    #using environment values in cell in this row and column - update environment values in all other cells
+        #iterate over all cells in matrix and run their apply_rules function
+        #also calculate statistics
+
+        cell_temperatures = []
+        cell_air_pollution = []
         for row in self.matrix:
             for cell in row:
                 cell.apply_rules(self.matrix)
 
+                #save temperature average data
+                cell_temperatures.append(cell.temperature)
+                #save air pollution average
+                cell_air_pollution.append(cell.air_pollution)
 
+        self.create_statistics(cell_temperatures, cell_air_pollution)
+        # self.standardize_data(4.692498966, self.day, r"C:\Users\Sandra study\PycharmProjects\pythonProject\temperature_data.csv")
+        self.day += 1
+        if self.day > 365:
+            exit(0)
+        print("day: ", self.day)
+
+    def standardize_data(self, average_yearly_temp, day, stand_deviation_file):
+        #for every day add a new row - with the standardized data value for each cell
+
+        file_path = "standardized_data.csv"
+
+        #if file is empty add headers
+        if os.stat(file_path).st_size == 0:
+            with open(file_path, 'a', newline='') as file:
+                writer = csv.writer(file)
+                first_row = ['Day']
+                for row in self.matrix:
+                    for cell in row:
+                        first_row.append(f"Cell Row-{cell.x}, Cell Col - {cell.y}")
+                writer.writerow(first_row)
+
+        #calculate standardization values for all the cells in this day
+        new_row = [day]
+        for row in self.matrix:
+            for cell in row:
+                standard_deviation = self.get_standard_deviation_value(stand_deviation_file, day)
+                assert standard_deviation is not None, "ERROR: Couldn't get standardized deviation value for day " + day
+                standardized_value = (cell.temperature - average_yearly_temp ) / standard_deviation
+                new_row.append(str(standardized_value))
+
+        #write the values for this day
+        with open(file_path, 'a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(new_row)
+
+    def get_standard_deviation_value(self, stand_deviation_file, day_id):
+        assert os.path.exists(stand_deviation_file), "ERROR: This path doesn't exist - " + stand_deviation_file
+        with open(stand_deviation_file, 'r') as file:
+            reader = csv.reader(file, delimiter='\t')
+            next(reader)  # Skip the header row if it exists
+
+            for row in reader:
+                row = row[0].split(",")
+                if int(row[0]) == day_id:  # Assuming Day_ID is in the first column (index 0)
+                    return float(row[3])  # Assuming Temperature Standard Deviation is in the fourth column (index 3)
+
+        return None
+
+    def create_statistics(self, temperatures, air_pollutions):
+        mean_temperatures = np.mean(temperatures)
+        mean_airps = np.mean(air_pollutions)
+
+        # Calculate the squared differences
+        squared_diff = (temperatures - mean_temperatures) ** 2
+
+        # Calculate the variance
+        variance = np.mean(squared_diff)
+
+        # Calculate the standard deviation
+        std_deviation = np.sqrt(variance)
+
+        self.plot_average(mean_temperatures, mean_airps, std_deviation)
+    def plot_average(self, temperature_average, air_pollution_average, temp_std_deviation):
+        file_path = 'temperature_data.csv'  # Change the file path as needed
+
+        # Check if the file already exists
+        if not os.path.exists(file_path):
+            # If the file doesn't exist, create it and write the header
+            with open(file_path, 'w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(['Day_ID', 'Temperature Average', 'Air Pollution Average', 'Temperature Standard Deviation', 'Global Warming State A', 'Global Warming State B', "Air Pollution Increase Factor"])
+
+        # Append the data to the CSV file
+        with open(file_path, 'a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([self.day, temperature_average, air_pollution_average, temp_std_deviation, GLOBAL_WARMING_STATE_A, GLOBAL_WARMING_STATE_B, AIR_POLLUTION_AVERAGE])
+
+    #GUI functions
     def build_GUI(self, image_size=(50, 50)):
         self.root = tk.Tk()
         self.root.title("Landscape Display")
@@ -275,6 +398,7 @@ class World:
     def toggle_pause(self):
         self.update_paused = not self.update_paused
         print("changed update_paused to ", self.update_paused)
+
     def redraw(self):
         if not self.update_paused:
             self.apply_rules()
@@ -284,6 +408,7 @@ class World:
         else:
             # If updates are paused, reschedule the function to check again after 500 milliseconds
             self.root.after(500, self.redraw)
+
     def edit_GUI(self):
         for row in self.matrix:
             for cell in row:
@@ -311,6 +436,7 @@ class World:
         label.config(image=new_image)
         label.image = new_image
         label.element = new_element
+
     def display_wind_direction(self, wind_direction):
         if wind_direction == "N":
             return "↑"
@@ -321,8 +447,35 @@ class World:
         elif wind_direction == "W":
             return "←"
 
+    def reduce_cities(self, new_city_count):
+        count = 0
+        for row in self.matrix:
+            for cell in row:
+                if cell.element == "city":
+                    count += 1
+
+        if count > new_city_count:
+            for row in self.matrix:
+                for cell in row:
+                    if cell.element == "city" and count > new_city_count:
+                        cell.update_element(random.choice(["earth", "water", "forest"]))
+                        count -= 1
+
+
+
 
 
 world = World()
-world.build_GUI()
+world.reduce_cities(new_city_count=1) #for last question
+
+#############run the gUI:##################
+# world.build_GUI()
+###########################################
+
+#############run only the rule changes (for statistics): #################
+while True:
+    world.apply_rules()
+
+##########################################################################
+
 
